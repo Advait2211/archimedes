@@ -1,0 +1,30 @@
+task_description: "Bipedal humanoid forward locomotion with upright posture"
+robot_type: biped
+obs_vector_dim: 45
+obs_components:
+  joint_pos:
+    start: 0
+    end: 17
+    description: "joint positions in radians (abdomen 3, hip 3x2, knee 1x2, ankle 2x2, shoulder 2x2)"
+  joint_vel:
+    start: 17
+    end: 34
+    description: "joint velocities in rad/s"
+  base_quat:
+    start: 34
+    end: 38
+    description: "base body orientation quaternion (w, x, y, z)"
+  base_lin_vel:
+    start: 38
+    end: 41
+    description: "base linear velocity xyz in m/s (world frame)"
+  base_ang_vel:
+    start: 41
+    end: 44
+    description: "base angular velocity xyz in rad/s"
+  base_height:
+    start: 44
+    end: 45
+    description: "base body height above ground in meters"
+success_metric: "obs['base_lin_vel'][0] > 1.0"
+episode_length: 1000

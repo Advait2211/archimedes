@@ -1,0 +1,41 @@
+# Observation Configuration Schema for Visual Eureka
+#
+# Place this file alongside your MuJoCo XML in envs/uploads/ as obs_config.yaml.
+# It tells the system how to interpret the flat observation vector and what task
+# the robot should perform.
+#
+# Required fields:
+#   task_description  - Natural language description of the locomotion task
+#   robot_type        - One of: quadruped, biped
+#   obs_vector_dim    - Total dimension of the flat observation vector
+#   obs_components    - Dict mapping component names to {start, end, description}
+#   episode_length    - Maximum timesteps per episode
+#
+# Optional fields:
+#   success_metric    - Python expression evaluated on obs dict, or null
+#
+# Each obs_component entry:
+#   start       - Start index in the flat observation vector (inclusive)
+#   end         - End index in the flat observation vector (exclusive)
+#   description - Human-readable description of what this slice contains
+#
+# The observation vector is built by concatenating components in the order
+# they appear. Indices must be contiguous and cover [0, obs_vector_dim).
+#
+# Example:
+#   obs_components:
+#     joint_pos:
+#       start: 0
+#       end: 12
+#       description: "joint positions in radians"
+
+task_description: "string - describe the locomotion task"
+robot_type: "quadruped | biped"
+obs_vector_dim: 0
+obs_components:
+  example_component:
+    start: 0
+    end: 0
+    description: "description of this observation slice"
+success_metric: null
+episode_length: 1000

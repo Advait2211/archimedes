@@ -1,0 +1,26 @@
+task_description: "Quadruped forward locomotion at maximum speed"
+robot_type: quadruped
+obs_vector_dim: 34
+obs_components:
+  joint_pos:
+    start: 0
+    end: 12
+    description: "joint positions in radians (3 per leg: hip_abd, hip_flex, knee)"
+  joint_vel:
+    start: 12
+    end: 24
+    description: "joint velocities in rad/s"
+  base_quat:
+    start: 24
+    end: 28
+    description: "base body orientation quaternion (w, x, y, z)"
+  base_lin_vel:
+    start: 28
+    end: 31
+    description: "base linear velocity xyz in m/s (world frame)"
+  base_ang_vel:
+    start: 31
+    end: 34
+    description: "base angular velocity xyz in rad/s"
+success_metric: null
+episode_length: 1000

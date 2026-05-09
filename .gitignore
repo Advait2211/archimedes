@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment / secrets
+.env
+
+# Streamlit
+.streamlit/
+
+# Database and model outputs
+state/eureka_runs.db
+state/models/
+
+# Uploaded robot files (generated at runtime)
+uploaded_robot.xml
+uploaded_obs_config.yaml
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+*.log
