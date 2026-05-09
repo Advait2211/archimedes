@@ -1,6 +1,8 @@
 import math
 import logging
+import os
 import traceback
+from datetime import datetime, timezone
 
 import gymnasium
 import numpy as np
@@ -8,6 +10,16 @@ import mujoco
 from gymnasium import spaces
 
 logger = logging.getLogger(__name__)
+
+_REWARD_ERROR_LOG = "state/reward_errors.log"
+
+
+def _log_reward_error_once(err_key: str, tb: str) -> None:
+    os.makedirs("state", exist_ok=True)
+    with open(_REWARD_ERROR_LOG, "a") as f:
+        f.write(f"\n{'=' * 60}\n")
+        f.write(f"{datetime.now(timezone.utc).isoformat()}\n")
+        f.write(tb)
 
 REQUIRED_OBS_FIELDS = [
     "task_description", "robot_type", "obs_vector_dim",
@@ -88,6 +100,7 @@ class EurekaEnv(gymnasium.Env):
         self.max_episode_steps = obs_config.get("episode_length", 1000)
         self._current_step = 0
         self.reward_fn = None
+        self._logged_reward_errors: set[str] = set()
 
         if reward_code is not None:
             self.set_reward_fn(reward_code)
@@ -212,7 +225,11 @@ class EurekaEnv(gymnasium.Env):
                 if not np.isfinite(reward):
                     reward = 0.0
             except Exception as e:
-                logger.warning(f"Reward function error: {e}")
+                err_key = f"{type(e).__name__}: {e}"
+                if err_key not in self._logged_reward_errors:
+                    self._logged_reward_errors.add(err_key)
+                    logger.warning(f"Reward function error: {e}\n{traceback.format_exc()}")
+                    _log_reward_error_once(err_key, traceback.format_exc())
                 reward = 0.0
                 reward_components = {}
 

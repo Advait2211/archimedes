@@ -97,6 +97,9 @@ Validation in `envs/base_env.py:validate_obs_config()` raises `ValueError` with 
 - Vision (visual reflection): `meta/llama-3.2-90b-vision-instruct` — accepts at most 1 image per request. Always send exactly 1 frame (middle frame of middle rollout GIF).
 - API key: loaded from `.env` at project root via `python-dotenv` in `llm/client.py`. Never hardcoded. No UI field for the key.
 
+### Reward Function Error Logging
+When a reward function throws an exception during `step()`, the error is deduplicated per `EurekaEnv` instance — only the first occurrence of each unique error is logged (to console via `logger.warning` and appended to `state/reward_errors.log`). Subsequent identical errors are silently swallowed (reward = 0.0). This prevents log spam when a broken reward function errors on every step. The log file accumulates across runs and is never cleared automatically.
+
 ### Training Defaults
 - Filter phase: 100K steps, 4 envs (recommended 50K for Go2 overnight runs)
 - Full training: 500K steps, 4 envs (recommended 1M–2M for Go2)

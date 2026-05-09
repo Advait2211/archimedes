@@ -47,7 +47,7 @@ class IterationStore:
         timestamp = fields.pop("timestamp", datetime.now(timezone.utc).isoformat())
 
         json_fields = {}
-        for key in ("candidate_codes", "filter_stats", "training_stats"):
+        for key in ("candidate_codes", "filter_stats", "training_stats", "eval_gif_paths"):
             if key in fields and not isinstance(fields[key], str):
                 json_fields[key] = json.dumps(fields[key])
             elif key in fields:

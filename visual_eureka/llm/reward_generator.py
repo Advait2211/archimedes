@@ -13,8 +13,34 @@ Return ONLY the function code. No markdown fences, no explanation.
 Each function must match this exact signature:
   def compute_reward(obs, info, data, model) -> tuple[float, dict]
 Available in scope: numpy as np, math, mujoco.
-MjData API: data.qpos, data.qvel, data.cfrc_ext, data.body_xpos[model.body('name').id], data.contact, etc.
-The dict return must map component name strings to float values."""
+
+obs is a Python dict mapping component name strings to numpy arrays:
+  obs["component_name"]     -> np.ndarray for that observation slice
+  obs["component_name"][0]  -> first element of that slice
+
+VALID MjData attributes (these are the ONLY ones that exist — do not invent others):
+  data.qpos          -> np.ndarray (nq,)  joint positions; [0:3]=base xyz, [3:7]=base quat, [7:]=joint angles
+  data.qvel          -> np.ndarray (nv,)  joint velocities; [0:3]=base lin vel, [3:6]=base ang vel, [6:]=joint vel
+  data.ctrl          -> np.ndarray (nu,)  actuator control signals
+  data.actuator_force-> np.ndarray (nu,)  actuator forces
+  data.cfrc_ext      -> np.ndarray (nbody, 6)  external forces on each body
+  data.xpos          -> np.ndarray (nbody, 3)  body positions in world frame
+  data.xquat         -> np.ndarray (nbody, 4)  body orientations in world frame
+  data.sensordata    -> np.ndarray  sensor readings (if sensors defined in XML)
+  data.ncon          -> int  number of active contacts
+  data.contact       -> contact array (use data.contact[i].geom1, .geom2)
+
+DO NOT use: data.base_lin_vel, data.base_ang_vel, data.body_xpos, data.body_xquat,
+            data.body_vel, data.base_pos, or any other attribute not listed above.
+
+All array attributes must be indexed with integers or slices, NEVER strings:
+  data.qvel[0:3]                           -> base linear velocity (correct)
+  data.qvel["forward"]                     -> WRONG, crashes
+  data.xpos[model.body("trunk").id]        -> body position by name (correct)
+  mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "name")  -> joint id by name
+
+The dict return must map component name strings to float values.
+Example return: return total_reward, {"forward_vel": float(fwd), "alive": float(alive)}"""
 
 
 def extract_xml_summary(xml_path: str) -> str:
