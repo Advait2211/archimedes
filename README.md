@@ -5,16 +5,14 @@ An evolutionary reward design system for MuJoCo locomotion RL, inspired by the E
 ## Setup
 
 ```bash
-pip install -r requirements.txt
+pip install -r visual_eureka/requirements.txt
 ```
 
-Create a `.env` file at the project root with your NVIDIA NIM API key (format: `nvapi-...`, obtain from build.nvidia.com):
+Create a `.env` file at the project root with your NVIDIA NIM API key:
 
 ```
 NVIDIA_API_KEY=nvapi-your-key-here
 ```
-
-The key is loaded automatically on startup — no need to export it manually.
 
 ## Running
 
@@ -33,7 +31,7 @@ Upload your MuJoCo XML and `obs_config.yaml` on the Setup page.
 
 ## Observation Config
 
-Each robot needs an `obs_config.yaml` describing its observation space and task. See `config/examples/` for templates.
+Each robot needs an `obs_config.yaml` describing its observation space and task. See `visual_eureka/config/examples/` for templates.
 
 ```yaml
 task_description: "Quadruped forward locomotion at maximum speed"
@@ -72,21 +70,34 @@ The LLM generates functions with this exact signature:
 def compute_reward(obs: dict, info: dict, data, model) -> tuple[float, dict]:
     # obs: named slices from obs_config (e.g. obs["joint_pos"], obs["base_lin_vel"])
     # info: gymnasium info dict
-    # data: mujoco.MjData -- data.qpos, data.qvel, data.cfrc_ext, data.body_xpos, etc.
+    # data: mujoco.MjData
     # model: mujoco.MjModel
-    # Returns: (scalar_reward, {"component_name": float_value, ...})
     return total_reward, {"forward_vel": fv_reward, "stability": stab_reward}
 ```
 
 Available in scope: `numpy as np`, `math`, `mujoco`.
+
+Valid `MjData` attributes:
+
+| Attribute | Shape | Description |
+|---|---|---|
+| `data.qpos` | `(nq,)` | Joint positions; `[0:3]` = base xyz, `[3:7]` = base quat, `[7:]` = joint angles |
+| `data.qvel` | `(nv,)` | Joint velocities; `[0:3]` = base lin vel, `[3:6]` = base ang vel, `[6:]` = joint vel |
+| `data.ctrl` | `(nu,)` | Actuator control signals |
+| `data.actuator_force` | `(nu,)` | Actuator forces |
+| `data.cfrc_ext` | `(nbody, 6)` | External forces on each body |
+| `data.xpos` | `(nbody, 3)` | Body positions in world frame |
+| `data.xquat` | `(nbody, 4)` | Body orientations in world frame |
+
+All arrays are indexed with integers or slices only — never strings. For named lookups: `data.xpos[model.body("trunk").id]`.
 
 ## Iteration Loop
 
 1. **Generate** — LLM produces K distinct reward function candidates informed by previous critiques
 2. **Filter** — Each candidate trains with PPO for a short phase; best is selected by mean reward
 3. **Train** — Best candidate trains for a full run; model is saved
-4. **Evaluate** — Policy runs 3 deterministic rollouts with different seeds; GIFs and a thumbnail are saved
-5. **Reflect** — VLM analyzes behavior from the middle rollout's middle frame; text model analyzes training statistics
+4. **Evaluate** — Policy runs 3 deterministic rollouts; GIFs and a thumbnail are saved
+5. **Reflect** — VLM analyzes behavior from the middle rollout GIF; text model analyzes training statistics
 6. **Iterate** — Critiques feed back into the next generation of reward candidates
 
 ## Modes
@@ -105,9 +116,13 @@ The Current Iteration page has a collapsed "Override training config for next it
 |---|---|
 | Filter steps | 50,000 |
 | Full training steps | 1,000,000 – 1,500,000 |
-| Candidates (K) | 3 |
+| Candidates (K) | 3–4 |
 | Total iterations | 5 |
 | Estimated time (M2 Air) | 8–10 hours |
+
+## Reward Error Logging
+
+If a reward function throws an exception during a training step, the error is logged once (to console and to `state/reward_errors.log`) and silently suppressed for all subsequent steps. This prevents log spam when a broken reward function errors on every step of an episode. The log file is never cleared automatically — check it to diagnose LLM-generated reward functions that silently zeroed out the reward signal.
 
 ## Recovery After Page Refresh
 

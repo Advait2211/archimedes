@@ -192,7 +192,7 @@ def _init_session_state():
         "config_k": 4,
         "config_filter_steps": 100_000,
         "config_full_steps": 500_000,
-        "config_eval_steps": 500,
+        "config_eval_steps": 1000,
         "reverted_code": None,
     }
     for key, val in defaults.items():
@@ -465,7 +465,7 @@ def page_setup():
         full_steps = st.slider(
             "Full training steps", 500_000, 3_000_000, 500_000, step=100_000
         )
-        eval_steps = st.slider("Eval rollout steps", 200, 1000, 500, step=100)
+        eval_steps = st.slider("Eval rollout steps", 200, 2000, 1000, step=100)
 
         st.session_state.config_k = k
         st.session_state.config_filter_steps = filter_steps
@@ -663,7 +663,7 @@ def page_current_iteration():
             )
         with oc3:
             st.session_state.config_eval_steps = st.slider(
-                "Eval rollout steps", 200, 1000,
+                "Eval rollout steps", 200, 2000,
                 st.session_state.config_eval_steps,
                 step=100,
                 key="override_eval_steps",

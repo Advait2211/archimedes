@@ -23,4 +23,4 @@ obs_components:
     end: 34
     description: "base angular velocity xyz in rad/s"
 success_metric: "obs['base_lin_vel'][0] > 0.8"
-episode_length: 1000
+episode_length: 2000

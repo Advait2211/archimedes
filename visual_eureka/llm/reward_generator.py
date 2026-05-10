@@ -40,7 +40,12 @@ All array attributes must be indexed with integers or slices, NEVER strings:
   mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "name")  -> joint id by name
 
 The dict return must map component name strings to float values.
-Example return: return total_reward, {"forward_vel": float(fwd), "alive": float(alive)}"""
+Example return: return total_reward, {"forward_vel": float(fwd), "alive": float(alive)}
+
+SURVIVAL BONUS: the environment automatically adds a survival bonus of +1.0 per step unless you
+include "survival" in your components dict. If you want to tune it, add it yourself:
+  return total + survival, {"forward_vel": float(fwd), "survival": float(survival)}
+Do not include "survival" if you are happy with the default +1.0/step."""
 
 
 def extract_xml_summary(xml_path: str) -> str:
