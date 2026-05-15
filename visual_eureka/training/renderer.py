@@ -6,6 +6,8 @@ import mujoco
 import imageio
 from PIL import Image
 from stable_baselines3 import PPO
+from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
+from stable_baselines3.common.monitor import Monitor
 
 from visual_eureka.envs.base_env import EurekaEnv
 
@@ -41,6 +43,14 @@ def render_eval_gifs(
     model = PPO.load(model_path)
     renderer = mujoco.Renderer(env.model, height=height, width=width)
 
+    vecnorm_path = model_path.replace(".zip", "_vecnorm.pkl")
+    obs_normalizer = None
+    if os.path.exists(vecnorm_path):
+        dummy_vec = DummyVecEnv([lambda: Monitor(EurekaEnv(xml_path, obs_config, reward_code=reward_code))])
+        obs_normalizer = VecNormalize.load(vecnorm_path, dummy_vec)
+        obs_normalizer.training = False
+        logger.info("Loaded VecNormalize stats for rendering")
+
     cam = mujoco.MjvCamera()
     cam.type = mujoco.mjtCamera.mjCAMERA_TRACKING
     base_id = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_BODY, "base")
@@ -58,7 +68,10 @@ def render_eval_gifs(
         frames = []
         obs, _ = env.reset(seed=r * 42)
         for _ in range(n_steps):
-            action, _ = model.predict(obs, deterministic=True)
+            pred_obs = obs
+            if obs_normalizer is not None:
+                pred_obs = obs_normalizer.normalize_obs(obs)
+            action, _ = model.predict(pred_obs, deterministic=True)
             obs, _, terminated, truncated, _ = env.step(action)
             renderer.update_scene(env.data, camera=cam)
             frames.append(renderer.render().copy())
@@ -72,6 +85,8 @@ def render_eval_gifs(
 
     renderer.close()
     env.close()
+    if obs_normalizer is not None:
+        obs_normalizer.close()
 
     # Thumbnail from the middle frame of the middle rollout
     mid_gif_path = gif_paths[len(gif_paths) // 2]

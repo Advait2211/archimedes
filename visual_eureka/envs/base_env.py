@@ -67,6 +67,11 @@ def validate_obs_config(obs_config: dict) -> None:
 class EurekaEnv(gymnasium.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 60}
 
+    DEFAULT_SUBSTEPS = {
+        "quadruped": 5,
+        "biped": 4,
+    }
+
     def __init__(
         self,
         xml_path: str,
@@ -84,6 +89,10 @@ class EurekaEnv(gymnasium.Env):
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.data = mujoco.MjData(self.model)
 
+        robot_type = obs_config.get("robot_type", "quadruped")
+        self.n_substeps = self.DEFAULT_SUBSTEPS.get(robot_type, 5)
+        self.dt = self.model.opt.timestep * self.n_substeps
+
         obs_dim = obs_config["obs_vector_dim"]
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32
@@ -93,6 +102,18 @@ class EurekaEnv(gymnasium.Env):
         ctrl_range = self.model.actuator_ctrlrange
         self.action_low = ctrl_range[:, 0].copy()
         self.action_high = ctrl_range[:, 1].copy()
+
+        key_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_KEY, "home")
+        if key_id >= 0 and self.model.key_qpos is not None:
+            self._home_qpos = self.model.key_qpos[key_id][7:].copy()
+        else:
+            self._home_qpos = np.zeros(n_actuators)
+
+        self._use_pd = True
+        self._kp = np.full(n_actuators, 20.0)
+        self._kd = np.full(n_actuators, 0.5)
+        self._action_scale_pos = np.full(n_actuators, 0.5)
+
         self.action_space = spaces.Box(
             low=-1.0, high=1.0, shape=(n_actuators,), dtype=np.float32
         )
@@ -205,14 +226,22 @@ class EurekaEnv(gymnasium.Env):
         return None
 
     def step(self, action: np.ndarray):
-        ctrl = self.action_low + (action + 1.0) * 0.5 * (self.action_high - self.action_low)
+        if self._use_pd:
+            target_pos = self._home_qpos + action * self._action_scale_pos
+            current_pos = self.data.qpos[7:7 + self.model.nu]
+            current_vel = self.data.qvel[6:6 + self.model.nu]
+            ctrl = self._kp * (target_pos - current_pos) - self._kd * current_vel
+            ctrl = np.clip(ctrl, self.action_low, self.action_high)
+        else:
+            ctrl = self.action_low + (action + 1.0) * 0.5 * (self.action_high - self.action_low)
         self.data.ctrl[:] = ctrl
-        mujoco.mj_step(self.model, self.data)
+        for _ in range(self.n_substeps):
+            mujoco.mj_step(self.model, self.data)
         self._current_step += 1
 
         obs = self._get_obs()
         obs_dict = self._make_obs_dict(obs)
-        info = {}
+        info = {"action": action.copy()}
 
         reward = 0.0
         reward_components = {}
@@ -233,6 +262,10 @@ class EurekaEnv(gymnasium.Env):
                 reward = 0.0
                 reward_components = {}
 
+        if "survival" not in reward_components:
+            reward += 1.0
+            reward_components["survival"] = 1.0
+
         info["reward_components"] = reward_components
 
         base_pos = self.data.qpos[:3]
@@ -240,7 +273,7 @@ class EurekaEnv(gymnasium.Env):
         terminated = False
 
         height = base_pos[2]
-        if height < 0.15 or height > 0.8:
+        if height < 0.18 or height > 1.0:
             terminated = True
 
         w, x, y, z = base_quat[0], base_quat[1], base_quat[2], base_quat[3]
@@ -251,7 +284,7 @@ class EurekaEnv(gymnasium.Env):
         sinp = np.clip(sinp, -1.0, 1.0)
         pitch = math.asin(sinp)
 
-        if abs(roll) > 1.2 or abs(pitch) > 0.8:
+        if abs(roll) > 0.7 or abs(pitch) > 0.5:
             terminated = True
 
         truncated = self._current_step >= self.max_episode_steps

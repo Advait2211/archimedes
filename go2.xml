@@ -61,6 +61,8 @@
   </asset>
 
   <worldbody>
+    <light name="spotlight" mode="targetbodycom" target="base" diffuse=".8 .8 .8" specular="0.3 0.3 0.3" pos="0 -2 3" cutoff="30"/>
+    <geom name="floor" type="plane" size="100 100 0.1" rgba="0.5 0.5 0.5 1" condim="3" conaffinity="15"/>
     <body name="base" pos="0 0 0.445" childclass="go2">
       <inertial pos="0.021112 0 -0.005366" quat="-0.000543471 0.713435 -0.00173769 0.700719" mass="6.921"
         diaginertia="0.107027 0.0980771 0.0244531"/>

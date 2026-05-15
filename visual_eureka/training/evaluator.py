@@ -1,7 +1,10 @@
 import logging
+import os
 
 import numpy as np
 from stable_baselines3 import PPO
+from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
+from stable_baselines3.common.monitor import Monitor
 
 from visual_eureka.envs.base_env import EurekaEnv
 
@@ -18,6 +21,13 @@ def evaluate_policy(
     env = EurekaEnv(xml_path, obs_config, reward_code=reward_code)
     model = PPO.load(model_path)
 
+    vecnorm_path = model_path.replace(".zip", "_vecnorm.pkl")
+    obs_normalizer = None
+    if os.path.exists(vecnorm_path):
+        dummy_vec = DummyVecEnv([lambda: Monitor(EurekaEnv(xml_path, obs_config, reward_code=reward_code))])
+        obs_normalizer = VecNormalize.load(vecnorm_path, dummy_vec)
+        obs_normalizer.training = False
+
     rewards = []
     lengths = []
     component_sums = {}
@@ -31,7 +41,10 @@ def evaluate_policy(
         done = False
 
         while not done:
-            action, _ = model.predict(obs, deterministic=True)
+            pred_obs = obs
+            if obs_normalizer is not None:
+                pred_obs = obs_normalizer.normalize_obs(obs)
+            action, _ = model.predict(pred_obs, deterministic=True)
             obs, reward, terminated, truncated, info = env.step(action)
             ep_reward += reward
             ep_len += 1
@@ -49,6 +62,8 @@ def evaluate_policy(
             early_terminations += 1
 
     env.close()
+    if obs_normalizer is not None:
+        obs_normalizer.close()
 
     component_means = {}
     if component_count > 0:
@@ -64,7 +79,10 @@ def evaluate_policy(
             obs, _ = eval_env.reset()
             done = False
             while not done:
-                action, _ = model.predict(obs, deterministic=True)
+                pred_obs = obs
+                if obs_normalizer is not None:
+                    pred_obs = obs_normalizer.normalize_obs(obs)
+                action, _ = model.predict(pred_obs, deterministic=True)
                 obs, _, terminated, truncated, info = eval_env.step(action)
                 done = terminated or truncated
             obs_dict = eval_env._make_obs_dict(obs)

@@ -5,7 +5,7 @@ import platform
 import numpy as np
 import torch
 from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
+from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecNormalize
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.callbacks import BaseCallback
 
@@ -27,16 +27,26 @@ def _make_env(xml_path: str, obs_config: dict, reward_code: str, seed: int):
     return _init
 
 
-def _create_vec_env(xml_path, obs_config, reward_code, n_envs, base_seed=0):
+def _create_vec_env(xml_path, obs_config, reward_code, n_envs, base_seed=0, normalize=True):
     env_fns = [_make_env(xml_path, obs_config, reward_code, seed=base_seed + j) for j in range(n_envs)]
     if n_envs == 1:
-        return DummyVecEnv(env_fns)
-    try:
-        start_method = "fork" if platform.system() == "Darwin" else "forkserver"
-        return SubprocVecEnv(env_fns, start_method=start_method)
-    except Exception as e:
-        logger.warning(f"SubprocVecEnv failed ({e}), falling back to DummyVecEnv")
-        return DummyVecEnv(env_fns)
+        vec_env = DummyVecEnv(env_fns)
+    else:
+        try:
+            start_method = "fork" if platform.system() == "Darwin" else "forkserver"
+            vec_env = SubprocVecEnv(env_fns, start_method=start_method)
+        except Exception as e:
+            logger.warning(f"SubprocVecEnv failed ({e}), falling back to DummyVecEnv")
+            vec_env = DummyVecEnv(env_fns)
+    if normalize:
+        vec_env = VecNormalize(vec_env, norm_obs=True, norm_reward=True, clip_obs=10.0, clip_reward=10.0)
+    return vec_env
+
+
+def _linear_schedule(initial_value: float):
+    def schedule(progress_remaining: float) -> float:
+        return progress_remaining * initial_value
+    return schedule
 
 
 class _TrainingCurveCallback(BaseCallback):
@@ -114,27 +124,34 @@ def _evaluate_after_training(
     obs_config: dict,
     reward_code: str,
     n_episodes: int = 10,
+    vec_normalize: VecNormalize = None,
 ) -> dict:
-    env = EurekaEnv(xml_path, obs_config, reward_code=reward_code)
+    eval_vec = _create_vec_env(xml_path, obs_config, reward_code, n_envs=1, normalize=False)
+    if vec_normalize is not None:
+        eval_vec = VecNormalize(eval_vec, norm_obs=True, norm_reward=False, clip_obs=10.0)
+        eval_vec.obs_rms = vec_normalize.obs_rms
+        eval_vec.ret_rms = vec_normalize.ret_rms
+        eval_vec.training = False
+
     rewards = []
     lengths = []
     component_sums = {}
     component_count = 0
 
     for _ in range(n_episodes):
-        obs, _ = env.reset()
+        obs = eval_vec.reset()
         ep_reward = 0.0
         ep_len = 0
         done = False
 
         while not done:
             action, _ = model.predict(obs, deterministic=True)
-            obs, reward, terminated, truncated, info = env.step(action)
-            ep_reward += reward
+            obs, rew, done_arr, infos = eval_vec.step(action)
+            ep_reward += float(rew[0])
             ep_len += 1
-            done = terminated or truncated
+            done = done_arr[0]
 
-            rc = info.get("reward_components", {})
+            rc = infos[0].get("reward_components", {})
             if rc:
                 component_count += 1
                 for k, v in rc.items():
@@ -143,7 +160,7 @@ def _evaluate_after_training(
         rewards.append(ep_reward)
         lengths.append(ep_len)
 
-    env.close()
+    eval_vec.close()
 
     component_means = {}
     if component_count > 0:
@@ -211,11 +228,11 @@ def run_filter_phase(
             model = PPO(
                 "MlpPolicy",
                 vec_env,
-                learning_rate=3e-4,
-                n_steps=2048,
-                batch_size=64,
+                learning_rate=_linear_schedule(3e-4),
+                n_steps=4096,
+                batch_size=512,
                 n_epochs=10,
-                gamma=0.99,
+                gamma=0.995,
                 gae_lambda=0.95,
                 clip_range=0.2,
                 ent_coef=0.01,
@@ -227,8 +244,9 @@ def run_filter_phase(
 
             model.learn(total_timesteps=filter_steps, callback=callbacks)
 
+            vn = vec_env if isinstance(vec_env, VecNormalize) else None
             eval_stats = _evaluate_after_training(
-                model, xml_path, obs_config, code, n_episodes=10
+                model, xml_path, obs_config, code, n_episodes=10, vec_normalize=vn
             )
 
             stats["mean_reward"] = eval_stats["mean_reward"]
@@ -296,11 +314,11 @@ def run_full_training(
     model = PPO(
         "MlpPolicy",
         vec_env,
-        learning_rate=3e-4,
-        n_steps=2048,
-        batch_size=64,
+        learning_rate=_linear_schedule(3e-4),
+        n_steps=4096,
+        batch_size=512,
         n_epochs=10,
-        gamma=0.99,
+        gamma=0.995,
         gae_lambda=0.95,
         clip_range=0.2,
         ent_coef=0.01,
@@ -315,32 +333,44 @@ def run_full_training(
     if save_path:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         model.save(save_path)
+        if isinstance(vec_env, VecNormalize):
+            vec_env.save(save_path.replace(".zip", "_vecnorm.pkl"))
 
+    vn = vec_env if isinstance(vec_env, VecNormalize) else None
     eval_stats = _evaluate_after_training(
-        model, xml_path, obs_config, reward_code, n_episodes=20
+        model, xml_path, obs_config, reward_code, n_episodes=20, vec_normalize=vn
     )
 
     success_rate = None
     success_metric = obs_config.get("success_metric")
     if success_metric:
-        env = EurekaEnv(xml_path, obs_config, reward_code=reward_code)
+        eval_vec = _create_vec_env(xml_path, obs_config, reward_code, n_envs=1, normalize=False)
+        if vn is not None:
+            eval_vec = VecNormalize(eval_vec, norm_obs=True, norm_reward=False, clip_obs=10.0)
+            eval_vec.obs_rms = vn.obs_rms
+            eval_vec.ret_rms = vn.ret_rms
+            eval_vec.training = False
         successes = 0
         n_eval = 20
         for _ in range(n_eval):
-            obs, _ = env.reset()
+            obs = eval_vec.reset()
             done = False
             while not done:
                 action, _ = model.predict(obs, deterministic=True)
-                obs, _, terminated, truncated, info = env.step(action)
-                done = terminated or truncated
-            obs_dict = env._make_obs_dict(obs)
+                obs, _, done_arr, infos = eval_vec.step(action)
+                done = done_arr[0]
+            raw_env = eval_vec.venv.envs[0] if hasattr(eval_vec, 'venv') else eval_vec.envs[0]
+            while hasattr(raw_env, 'env'):
+                raw_env = raw_env.env
+            final_obs_vec = raw_env._get_obs()
+            obs_dict = raw_env._make_obs_dict(final_obs_vec)
             try:
                 ns = {"obs": obs_dict, "np": np}
                 if eval(success_metric, {"__builtins__": {}}, ns):
                     successes += 1
             except Exception:
                 pass
-        env.close()
+        eval_vec.close()
         success_rate = successes / n_eval
 
     training_curve = curve_cb.curve

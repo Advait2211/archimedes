@@ -7,7 +7,7 @@ from .client import NIMClient
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """\
-You are an expert reward function designer for MuJoCo locomotion RL.
+You are an expert reward function designer for MuJoCo locomotion RL trained with PPO.
 You write Python reward functions for quadruped and biped robots.
 Return ONLY the function code. No markdown fences, no explanation.
 Each function must match this exact signature:
@@ -18,7 +18,12 @@ obs is a Python dict mapping component name strings to numpy arrays:
   obs["component_name"]     -> np.ndarray for that observation slice
   obs["component_name"][0]  -> first element of that slice
 
-VALID MjData attributes (these are the ONLY ones that exist — do not invent others):
+info is a dict containing:
+  info["action"]  -> np.ndarray (nu,) the NORMALIZED action in [-1, 1] range
+Use info["action"] (NOT data.ctrl) for action/energy penalties. data.ctrl has robot-specific
+magnitudes (often [-20, 45]) that make penalties scale incorrectly across robots.
+
+VALID MjData attributes (these are the ONLY ones that exist -- do not invent others):
   data.qpos          -> np.ndarray (nq,)  joint positions; [0:3]=base xyz, [3:7]=base quat, [7:]=joint angles
   data.qvel          -> np.ndarray (nv,)  joint velocities; [0:3]=base lin vel, [3:6]=base ang vel, [6:]=joint vel
   data.ctrl          -> np.ndarray (nu,)  actuator control signals
@@ -40,12 +45,40 @@ All array attributes must be indexed with integers or slices, NEVER strings:
   mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "name")  -> joint id by name
 
 The dict return must map component name strings to float values.
-Example return: return total_reward, {"forward_vel": float(fwd), "alive": float(alive)}
+Example return: return total_reward, {"forward_vel": float(fwd), "energy": float(energy_pen)}
 
 SURVIVAL BONUS: the environment automatically adds a survival bonus of +1.0 per step unless you
 include "survival" in your components dict. If you want to tune it, add it yourself:
   return total + survival, {"forward_vel": float(fwd), "survival": float(survival)}
-Do not include "survival" if you are happy with the default +1.0/step."""
+Do not include "survival" if you are happy with the default +1.0/step.
+
+REWARD DESIGN PRINCIPLES (critical for PPO to learn):
+1. GATE velocity reward on stability. The pattern: forward_reward = weight * velocity * exp(-k * (roll^2 + pitch^2))
+   ensures the robot only gets velocity credit when upright. Without this, the robot either stands still
+   (if standing rewards dominate) or sprints and crashes (if velocity reward dominates).
+2. The DOMINANT component must be the task objective (e.g., forward velocity for locomotion).
+   Make it the largest contributor by a factor of 5-10x over standing-still rewards at target speed.
+3. Use exp(-k * error^2) for soft penalties with temperature k=1..10. This gives smooth gradients.
+   Avoid hard thresholds or clamp/clip -- PPO needs differentiable signal.
+4. Standing-still rewards (height bonus, survival) must be SMALL relative to velocity at target speed.
+   If the robot gets more reward for standing than walking, it will stand still.
+5. Action energy penalty: -0.02 * sum(info["action"]^2) prevents jittery motion.
+   ALWAYS use info["action"] (normalized [-1,1]), NEVER data.ctrl (robot-specific magnitudes).
+6. Base orientation penalty (keep upright): -15.0 * (roll^2 + pitch^2) or exp form.
+   Extract roll/pitch from quaternion: w,x,y,z = quat; roll = atan2(2*(w*x+y*z), 1-2*(x^2+y^2))
+7. Angular velocity penalty: -0.8 * sum(data.qvel[3:6]^2) prevents spinning/wobbling during gait.
+8. Typical per-step reward magnitude should be 1.0-15.0. If reward is < 0.1 per step, learning is too slow.
+   If reward > 50 per step, value function training destabilizes.
+
+REFERENCE: a proven quadruped locomotion reward (produces 1 m/s stable walking):
+  stability = exp(-8.0 * (roll^2 + pitch^2))
+  forward_vel:    10.0 * data.qvel[0] * stability  (gated on uprightness)
+  lateral_pen:    -2.0 * data.qvel[1]^2
+  orientation:    -15.0 * (roll^2 + pitch^2)
+  height_bonus:   2.0 * exp(-30.0 * (height - target_height)^2)
+  action_energy:  -0.02 * sum(info["action"]^2)  (uses normalized action, NOT data.ctrl)
+  ang_vel_pen:    -0.8 * sum(data.qvel[3:6]^2)
+This is a starting point -- vary the weights, functional forms, and components across candidates."""
 
 
 def extract_xml_summary(xml_path: str) -> str:
@@ -135,7 +168,15 @@ def _build_user_prompt(
         f"Generate {k} DISTINCT reward function implementations.",
         "Separate each with exactly this delimiter on its own line:",
         "### REWARD_CANDIDATE ###",
-        "Vary reward components, scales, and functional forms across candidates.",
+        "",
+        "Requirements for EACH candidate:",
+        "- Must be syntactically valid Python that runs without error",
+        "- Must return (float, dict) where dict maps component names to float values",
+        "- The task objective component must be the DOMINANT reward signal",
+        "- Vary reward components, weights, and functional forms across candidates",
+        "- At least one candidate should use exponential reward shaping (exp(-k*error^2))",
+        "- At least one candidate should use linear velocity reward",
+        "- Include regularization (action penalty, orientation penalty) but keep them small",
     ])
 
     return "\n".join(parts)

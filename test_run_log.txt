@@ -1,0 +1,637 @@
+
+================================================================================
+  GO2 TEST RUN
+================================================================================
+
+Started: 2026-05-15T20:30:22.152775
+
+
+================================================================================
+  OBS CONFIG
+================================================================================
+
+episode_length: 2000
+obs_components:
+  base_ang_vel:
+    description: base angular velocity xyz in rad/s
+    end: 34
+    start: 31
+  base_lin_vel:
+    description: base linear velocity xyz in m/s (world frame)
+    end: 31
+    start: 28
+  base_quat:
+    description: base body orientation quaternion (w, x, y, z)
+    end: 28
+    start: 24
+  joint_pos:
+    description: joint positions in radians (FL_hip, FL_thigh, FL_calf, FR_hip, FR_thigh,
+      FR_calf, RL_hip, RL_thigh, RL_calf, RR_hip, RR_thigh, RR_calf)
+    end: 12
+    start: 0
+  joint_vel:
+    description: joint velocities in rad/s
+    end: 24
+    start: 12
+obs_vector_dim: 34
+robot_type: quadruped
+success_metric: obs['base_lin_vel'][0] > 0.8
+task_description: Quadruped forward locomotion at maximum speed while maintaining
+  stability
+
+
+
+================================================================================
+  XML SUMMARY
+================================================================================
+
+Bodies:
+  base (pos=0 0 0.445)
+  FL_hip (pos=0.1934 0.0465 0)
+  FL_thigh (pos=0 0.0955 0)
+  FL_calf (pos=0 0 -0.213)
+  FR_hip (pos=0.1934 -0.0465 0)
+  FR_thigh (pos=0 -0.0955 0)
+  FR_calf (pos=0 0 -0.213)
+  RL_hip (pos=-0.1934 0.0465 0)
+  RL_thigh (pos=0 0.0955 0)
+  RL_calf (pos=0 0 -0.213)
+  RR_hip (pos=-0.1934 -0.0465 0)
+  RR_thigh (pos=0 -0.0955 0)
+  RR_calf (pos=0 0 -0.213)
+
+Joints:
+  FL_hip_joint (axis=0 1 0, range=none)
+  FL_thigh_joint (axis=0 1 0, range=none)
+  FL_calf_joint (axis=0 1 0, range=none)
+  FR_hip_joint (axis=0 1 0, range=none)
+  FR_thigh_joint (axis=0 1 0, range=none)
+  FR_calf_joint (axis=0 1 0, range=none)
+  RL_hip_joint (axis=0 1 0, range=none)
+  RL_thigh_joint (axis=0 1 0, range=none)
+  RL_calf_joint (axis=0 1 0, range=none)
+  RR_hip_joint (axis=0 1 0, range=none)
+  RR_thigh_joint (axis=0 1 0, range=none)
+  RR_calf_joint (axis=0 1 0, range=none)
+
+Named geoms:
+  FL (type=sphere)
+  FR (type=sphere)
+  RL (type=sphere)
+  RR (type=sphere)
+
+Actuators:
+  unnamed -> unknown (ctrlrange=-23.7 23.7)
+  unnamed -> unknown (ctrlrange=-45.43 45.43)
+  FL_hip -> FL_hip_joint (ctrlrange=none)
+  FL_thigh -> FL_thigh_joint (ctrlrange=none)
+  FL_calf -> FL_calf_joint (ctrlrange=none)
+  FR_hip -> FR_hip_joint (ctrlrange=none)
+  FR_thigh -> FR_thigh_joint (ctrlrange=none)
+  FR_calf -> FR_calf_joint (ctrlrange=none)
+  RL_hip -> RL_hip_joint (ctrlrange=none)
+  RL_thigh -> RL_thigh_joint (ctrlrange=none)
+  RL_calf -> RL_calf_joint (ctrlrange=none)
+  RR_hip -> RR_hip_joint (ctrlrange=none)
+  RR_thigh -> RR_thigh_joint (ctrlrange=none)
+  RR_calf -> RR_calf_joint (ctrlrange=none)
+
+
+================================================================================
+  ENV SANITY CHECK
+================================================================================
+
+OK. obs=(34,), n_substeps=5, dt=0.0100s, height=0.2143
+
+
+================================================================================
+  REWARD GENERATION: SYSTEM PROMPT
+================================================================================
+
+You are an expert reward function designer for MuJoCo locomotion RL trained with PPO.
+You write Python reward functions for quadruped and biped robots.
+Return ONLY the function code. No markdown fences, no explanation.
+Each function must match this exact signature:
+  def compute_reward(obs, info, data, model) -> tuple[float, dict]
+Available in scope: numpy as np, math, mujoco.
+
+obs is a Python dict mapping component name strings to numpy arrays:
+  obs["component_name"]     -> np.ndarray for that observation slice
+  obs["component_name"][0]  -> first element of that slice
+
+info is a dict containing:
+  info["action"]  -> np.ndarray (nu,) the NORMALIZED action in [-1, 1] range
+Use info["action"] (NOT data.ctrl) for action/energy penalties. data.ctrl has robot-specific
+magnitudes (often [-20, 45]) that make penalties scale incorrectly across robots.
+
+VALID MjData attributes (these are the ONLY ones that exist -- do not invent others):
+  data.qpos          -> np.ndarray (nq,)  joint positions; [0:3]=base xyz, [3:7]=base quat, [7:]=joint angles
+  data.qvel          -> np.ndarray (nv,)  joint velocities; [0:3]=base lin vel, [3:6]=base ang vel, [6:]=joint vel
+  data.ctrl          -> np.ndarray (nu,)  actuator control signals
+  data.actuator_force-> np.ndarray (nu,)  actuator forces
+  data.cfrc_ext      -> np.ndarray (nbody, 6)  external forces on each body
+  data.xpos          -> np.ndarray (nbody, 3)  body positions in world frame
+  data.xquat         -> np.ndarray (nbody, 4)  body orientations in world frame
+  data.sensordata    -> np.ndarray  sensor readings (if sensors defined in XML)
+  data.ncon          -> int  number of active contacts
+  data.contact       -> contact array (use data.contact[i].geom1, .geom2)
+
+DO NOT use: data.base_lin_vel, data.base_ang_vel, data.body_xpos, data.body_xquat,
+            data.body_vel, data.base_pos, or any other attribute not listed above.
+
+All array attributes must be indexed with integers or slices, NEVER strings:
+  data.qvel[0:3]                           -> base linear velocity (correct)
+  data.qvel["forward"]                     -> WRONG, crashes
+  data.xpos[model.body("trunk").id]        -> body position by name (correct)
+  mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "name")  -> joint id by name
+
+The dict return must map component name strings to float values.
+Example return: return total_reward, {"forward_vel": float(fwd), "energy": float(energy_pen)}
+
+SURVIVAL BONUS: the environment automatically adds a survival bonus of +1.0 per step unless you
+include "survival" in your components dict. If you want to tune it, add it yourself:
+  return total + survival, {"forward_vel": float(fwd), "survival": float(survival)}
+Do not include "survival" if you are happy with the default +1.0/step.
+
+REWARD DESIGN PRINCIPLES (critical for PPO to learn):
+1. The DOMINANT component must be the task objective (e.g., forward velocity for locomotion).
+   Make it the largest contributor by a factor of 2-5x over penalties.
+2. Use exp(-k * error^2) for soft penalties with temperature k=1..10. This gives smooth gradients.
+   Avoid hard thresholds or clamp/clip -- PPO needs differentiable signal.
+3. Penalty magnitudes should be 0.1-0.5x the main reward. Too large and the robot freezes to avoid penalties.
+4. For velocity targets, reward = exp(-2.0 * (v_actual - v_target)^2) works well.
+   For quadrupeds, v_target = 1.0-2.0 m/s is reasonable.
+5. Action energy penalty: -0.05 * sum(info["action"]^2) prevents jittery motion.
+   ALWAYS use info["action"] (normalized [-1,1]), NEVER data.ctrl (robot-specific magnitudes).
+6. Base orientation penalty (keep upright): -2.0 * (roll^2 + pitch^2) or exp form.
+   Extract roll/pitch from quaternion: w,x,y,z = quat; roll = atan2(2*(w*x+y*z), 1-2*(x^2+y^2))
+7. Typical per-step reward magnitude should be 1.0-5.0. If reward is < 0.1 per step, learning is too slow.
+   If reward > 50 per step, value function training destabilizes.
+
+REFERENCE: a solid quadruped locomotion reward function has these components:
+  forward_vel:    1.5 * data.qvel[0]  (or exponential around target speed)
+  lateral_pen:    -0.5 * data.qvel[1]^2
+  orientation:    -2.0 * (roll^2 + pitch^2)
+  action_energy:  -0.05 * sum(info["action"]^2)  (uses normalized action, NOT data.ctrl)
+  height_bonus:   exp(-40.0 * (height - target_height)^2)
+This is a starting point -- vary the weights, functional forms, and components across candidates.
+
+
+================================================================================
+  REWARD GENERATION: USER PROMPT
+================================================================================
+
+Task: Quadruped forward locomotion at maximum speed while maintaining stability
+Robot type: quadruped
+
+Observation dictionary keys:
+  joint_pos -- joint positions in radians (FL_hip, FL_thigh, FL_calf, FR_hip, FR_thigh, FR_calf, RL_hip, RL_thigh, RL_calf, RR_hip, RR_thigh, RR_calf), shape (12,)
+  joint_vel -- joint velocities in rad/s, shape (12,)
+  base_quat -- base body orientation quaternion (w, x, y, z), shape (4,)
+  base_lin_vel -- base linear velocity xyz in m/s (world frame), shape (3,)
+  base_ang_vel -- base angular velocity xyz in rad/s, shape (3,)
+
+MuJoCo model summary:
+Bodies:
+  base (pos=0 0 0.445)
+  FL_hip (pos=0.1934 0.0465 0)
+  FL_thigh (pos=0 0.0955 0)
+  FL_calf (pos=0 0 -0.213)
+  FR_hip (pos=0.1934 -0.0465 0)
+  FR_thigh (pos=0 -0.0955 0)
+  FR_calf (pos=0 0 -0.213)
+  RL_hip (pos=-0.1934 0.0465 0)
+  RL_thigh (pos=0 0.0955 0)
+  RL_calf (pos=0 0 -0.213)
+  RR_hip (pos=-0.1934 -0.0465 0)
+  RR_thigh (pos=0 -0.0955 0)
+  RR_calf (pos=0 0 -0.213)
+
+Joints:
+  FL_hip_joint (axis=0 1 0, range=none)
+  FL_thigh_joint (axis=0 1 0, range=none)
+  FL_calf_joint (axis=0 1 0, range=none)
+  FR_hip_joint (axis=0 1 0, range=none)
+  FR_thigh_joint (axis=0 1 0, range=none)
+  FR_calf_joint (axis=0 1 0, range=none)
+  RL_hip_joint (axis=0 1 0, range=none)
+  RL_thigh_joint (axis=0 1 0, range=none)
+  RL_calf_joint (axis=0 1 0, range=none)
+  RR_hip_joint (axis=0 1 0, range=none)
+  RR_thigh_joint (axis=0 1 0, range=none)
+  RR_calf_joint (axis=0 1 0, range=none)
+
+Named geoms:
+  FL (type=sphere)
+  FR (type=sphere)
+  RL (type=sphere)
+  RR (type=sphere)
+
+Actuators:
+  unnamed -> unknown (ctrlrange=-23.7 23.7)
+  unnamed -> unknown (ctrlrange=-45.43 45.43)
+  FL_hip -> FL_hip_joint (ctrlrange=none)
+  FL_thigh -> FL_thigh_joint (ctrlrange=none)
+  FL_calf -> FL_calf_joint (ctrlrange=none)
+  FR_hip -> FR_hip_joint (ctrlrange=none)
+  FR_thigh -> FR_thigh_joint (ctrlrange=none)
+  FR_calf -> FR_calf_joint (ctrlrange=none)
+  RL_hip -> RL_hip_joint (ctrlrange=none)
+  RL_thigh -> RL_thigh_joint (ctrlrange=none)
+  RL_calf -> RL_calf_joint (ctrlrange=none)
+  RR_hip -> RR_hip_joint (ctrlrange=none)
+  RR_thigh -> RR_thigh_joint (ctrlrange=none)
+  RR_calf -> RR_calf_joint (ctrlrange=none)
+
+Generate 3 DISTINCT reward function implementations.
+Separate each with exactly this delimiter on its own line:
+### REWARD_CANDIDATE ###
+
+Requirements for EACH candidate:
+- Must be syntactically valid Python that runs without error
+- Must return (float, dict) where dict maps component names to float values
+- The task objective component must be the DOMINANT reward signal
+- Vary reward components, weights, and functional forms across candidates
+- At least one candidate should use exponential reward shaping (exp(-k*error^2))
+- At least one candidate should use linear velocity reward
+- Include regularization (action penalty, orientation penalty) but keep them small
+
+
+================================================================================
+  CANDIDATE 0
+================================================================================
+
+import numpy as np
+import math
+
+def compute_reward(obs, info, data, model):
+    # Extract relevant observations
+    base_lin_vel = obs["base_lin_vel"]
+    base_quat = obs["base_quat"]
+    joint_vel = obs["joint_vel"]
+    action = info["action"]
+
+    # Task objective: forward velocity
+    forward_vel = base_lin_vel[0]
+    forward_reward = 2.0 * forward_vel
+
+    # Regularization: action penalty
+    action_penalty = -0.05 * np.sum(action ** 2)
+
+    # Regularization: orientation penalty
+    w, x, y, z = base_quat
+    roll = math.atan2(2 * (w * x + y * z), 1 - 2 * (x ** 2 + y ** 2))
+    pitch = math.atan2(2 * (w * y - x * z), 1 - 2 * (y ** 2 + z ** 2))
+    orientation_penalty = -0.1 * (roll ** 2 + pitch ** 2)
+
+    # Total reward
+    total_reward = forward_reward + action_penalty + orientation_penalty
+
+    # Return reward and component dictionary
+    return total_reward, {
+        "forward_vel": forward_vel,
+        "action_penalty": action_penalty,
+        "orientation_penalty": orientation_penalty
+    }
+
+
+================================================================================
+  CANDIDATE 0 DRY RUN
+================================================================================
+
+total_reward=12.8966, steps=16, components={'forward_vel': -0.019893028, 'action_penalty': -0.11658415794372559, 'orientation_penalty': -0.00022383631176202848, 'survival': 1.0}
+
+
+================================================================================
+  CANDIDATE 1
+================================================================================
+
+import numpy as np
+import math
+
+def compute_reward(obs, info, data, model):
+    # Extract relevant observations
+    base_lin_vel = obs["base_lin_vel"]
+    base_quat = obs["base_quat"]
+    joint_vel = obs["joint_vel"]
+    action = info["action"]
+
+    # Task objective: exponential velocity reward
+    target_vel = 2.0
+    error = base_lin_vel[0] - target_vel
+    forward_reward = np.exp(-2.0 * error ** 2)
+
+    # Regularization: action penalty
+    action_penalty = -0.05 * np.sum(action ** 2)
+
+    # Regularization: orientation penalty
+    w, x, y, z = base_quat
+    roll = math.atan2(2 * (w * x + y * z), 1 - 2 * (x ** 2 + y ** 2))
+    pitch = math.atan2(2 * (w * y - x * z), 1 - 2 * (y ** 2 + z ** 2))
+    orientation_penalty = -0.1 * np.exp(-0.5 * (roll ** 2 + pitch ** 2))
+
+    # Total reward
+    total_reward = forward_reward + action_penalty + orientation_penalty
+
+    # Return reward and component dictionary
+    return total_reward, {
+        "forward_vel": base_lin_vel[0],
+        "action_penalty": action_penalty,
+        "orientation_penalty": orientation_penalty
+    }
+
+
+================================================================================
+  CANDIDATE 1 DRY RUN
+================================================================================
+
+total_reward=11.1244, steps=16, components={'forward_vel': -0.01702398, 'action_penalty': -0.22535476684570313, 'orientation_penalty': -0.09991190102023756, 'survival': 1.0}
+
+
+================================================================================
+  CANDIDATE 2
+================================================================================
+
+import numpy as np
+import math
+
+def compute_reward(obs, info, data, model):
+    # Extract relevant observations
+    base_lin_vel = obs["base_lin_vel"]
+    base_quat = obs["base_quat"]
+    joint_vel = obs["joint_vel"]
+    action = info["action"]
+
+    # Task objective: linear velocity reward with saturation
+    forward_vel = base_lin_vel[0]
+    forward_reward = np.minimum(2.0 * forward_vel, 5.0)
+
+    # Regularization: action penalty
+    action_penalty = -0.05 * np.sum(action ** 2)
+
+    # Regularization: orientation penalty
+    w, x, y, z = base_quat
+    roll = math.atan2(2 * (w * x + y * z), 1 - 2 * (x ** 2 + y ** 2))
+    pitch = math.atan2(2 * (w * y - x * z), 1 - 2 * (y ** 2 + z ** 2))
+    orientation_penalty = -0.1 * (roll ** 2 + pitch ** 2)
+
+    # Total reward
+    total_reward = forward_reward + action_penalty + orientation_penalty
+
+    # Return reward and component dictionary
+    return total_reward, {
+        "forward_vel": forward_vel,
+        "action_penalty": action_penalty,
+        "orientation_penalty": orientation_penalty
+    }
+
+
+================================================================================
+  CANDIDATE 2 DRY RUN
+================================================================================
+
+total_reward=12.6835, steps=16, components={'forward_vel': 0.0017777767, 'action_penalty': -0.1850216627120972, 'orientation_penalty': -0.0010476511168407935, 'survival': 1.0}
+
+
+================================================================================
+  FILTER STATS: CANDIDATE 0 <-- BEST
+================================================================================
+
+{
+  "candidate_index": 0,
+  "mean_reward": 17.088422203063963,
+  "std_reward": 0.20999050142153777,
+  "mean_ep_length": 16.0,
+  "reward_component_means": {
+    "forward_vel": 0.03922761456342414,
+    "action_penalty": -0.010352305355481801,
+    "orientation_penalty": -7.653808869435872e-05,
+    "survival": 1.0
+  },
+  "error": null
+}
+
+
+================================================================================
+  FILTER STATS: CANDIDATE 1
+================================================================================
+
+{
+  "candidate_index": 1,
+  "mean_reward": 14.367163729667663,
+  "std_reward": 0.005218969472862498,
+  "mean_ep_length": 16.0,
+  "reward_component_means": {
+    "forward_vel": 0.0014238947711419313,
+    "action_penalty": -0.0024962945986771955,
+    "orientation_penalty": -0.09989568832208262,
+    "survival": 1.0
+  },
+  "error": null
+}
+
+
+================================================================================
+  FILTER STATS: CANDIDATE 2
+================================================================================
+
+{
+  "candidate_index": 2,
+  "mean_reward": 17.075485038757325,
+  "std_reward": 0.18129569439600685,
+  "mean_ep_length": 16.0,
+  "reward_component_means": {
+    "forward_vel": 0.03827744600130245,
+    "action_penalty": -0.009274467960931357,
+    "orientation_penalty": -6.260733043776079e-05,
+    "survival": 1.0
+  },
+  "error": null
+}
+
+
+================================================================================
+  BEST REWARD CODE (from filter)
+================================================================================
+
+import numpy as np
+import math
+
+def compute_reward(obs, info, data, model):
+    # Extract relevant observations
+    base_lin_vel = obs["base_lin_vel"]
+    base_quat = obs["base_quat"]
+    joint_vel = obs["joint_vel"]
+    action = info["action"]
+
+    # Task objective: forward velocity
+    forward_vel = base_lin_vel[0]
+    forward_reward = 2.0 * forward_vel
+
+    # Regularization: action penalty
+    action_penalty = -0.05 * np.sum(action ** 2)
+
+    # Regularization: orientation penalty
+    w, x, y, z = base_quat
+    roll = math.atan2(2 * (w * x + y * z), 1 - 2 * (x ** 2 + y ** 2))
+    pitch = math.atan2(2 * (w * y - x * z), 1 - 2 * (y ** 2 + z ** 2))
+    orientation_penalty = -0.1 * (roll ** 2 + pitch ** 2)
+
+    # Total reward
+    total_reward = forward_reward + action_penalty + orientation_penalty
+
+    # Return reward and component dictionary
+    return total_reward, {
+        "forward_vel": forward_vel,
+        "action_penalty": action_penalty,
+        "orientation_penalty": orientation_penalty
+    }
+
+
+================================================================================
+  FULL TRAINING STATS
+================================================================================
+
+{
+  "mean_reward": 17.40127604007721,
+  "std_reward": 0.4393498402820877,
+  "mean_ep_length": 15.85,
+  "reward_component_means": {
+    "forward_vel": 0.1003836306379021,
+    "action_penalty": -0.10173291240580827,
+    "orientation_penalty": -0.0011620420244034678,
+    "survival": 1.0
+  },
+  "success_rate": 0.0,
+  "training_curve": [
+    [
+      16384,
+      11.025714954101563
+    ],
+    [
+      32768,
+      11.137634397859923
+    ],
+    [
+      49152,
+      11.305477993190662
+    ],
+    [
+      65536,
+      11.52694405165692
+    ],
+    [
+      81920,
+      11.753418041910331
+    ],
+    [
+      98304,
+      12.078643536062378
+    ],
+    [
+      114688,
+      12.280630025365856
+    ],
+    [
+      131072,
+      12.520529219298245
+    ],
+    [
+      147456,
+      12.785941308365759
+    ],
+    [
+      163840,
+      13.002881739045764
+    ],
+    [
+      180224,
+      13.238863968841285
+    ],
+    [
+      196608,
+      13.40356683592233
+    ],
+    [
+      212992,
+      13.571767964980543
+    ],
+    [
+      229376,
+      13.716942436345967
+    ],
+    [
+      245760,
+      13.8071487696793
+    ],
+    [
+      262144,
+      13.916267880582526
+    ],
+    [
+      278528,
+      13.966816299029125
+    ],
+    [
+      294912,
+      14.020147623300971
+    ],
+    [
+      311296,
+      14.027705722060253
+    ]
+  ],
+  "model_path": "state/models/test_go2_model.zip"
+}
+
+
+================================================================================
+  EVAL GIFS
+================================================================================
+
+Paths: ['state/models/test_go2_eval_0.gif', 'state/models/test_go2_eval_1.gif', 'state/models/test_go2_eval_2.gif']
+Thumb: state/models/test_go2_eval_thumb.png
+
+
+================================================================================
+  TEXT CRITIQUE
+================================================================================
+
+STATISTICAL ANALYSIS: 
+The mean reward is 17.4013, which is largely influenced by the forward velocity reward component (mean: 0.100384 * 2.0 = 0.200768, but since this is multiplied by 2, its actual influence is 0.200768 * 2 = 0.401536, which is approximately 2.3% of the mean reward). The action penalty component has a mean of -0.101733, which is relatively small compared to the mean reward. The orientation penalty component has a mean of -0.001162, indicating that the quadruped is generally maintaining a stable orientation. The survival rate is 1.0, indicating that the quadruped is not falling or failing during episodes.
+
+The training curve shape is rising, indicating that the reward is improving over time. However, the success rate is 0.00%, suggesting that the quadruped is not achieving the desired task of forward locomotion at maximum speed while maintaining stability.
+
+LIKELY ISSUES: 
+The forward velocity reward component is likely too weak, as the mean forward velocity is only 0.100384, which is relatively slow. The action penalty component may be too strong, as the mean action penalty is -0.101733, which could be discouraging the quadruped from taking large actions to achieve faster forward velocities. The orientation penalty component is likely too weak, as the mean orientation penalty is -0.001162, indicating that the quadruped is not being penalized enough for deviating from a stable orientation.
+
+The quadruped is likely being incentivized to prioritize stability over forward velocity, as the orientation penalty component is relatively weak. This could be causing the quadruped to move slowly and cautiously, rather than attempting to achieve faster forward velocities.
+
+SUGGESTED CHANGES: 
+1. Increase the weight of the forward velocity reward component to incentivize faster forward velocities. For example, change the line `forward_reward = 2.0 * forward_vel` to `forward_reward = 5.0 * forward_vel` or `forward_reward = 10.0 * forward_vel`.
+2. Decrease the weight of the action penalty component to allow the quadruped to take larger actions to achieve faster forward velocities. For example, change the line `action_penalty = -0.05 * np.sum(action ** 2)` to `action_penalty = -0.01 * np.sum(action ** 2)` or `action_penalty = -0.005 * np.sum(action ** 2)`.
+3. Increase the weight of the orientation penalty component to incentivize the quadruped to maintain a stable orientation while moving. For example, change the line `orientation_penalty = -0.1 * (roll ** 2 + pitch ** 2)` to `orientation_penalty = -0.5 * (roll ** 2 + pitch ** 2)` or `orientation_penalty = -1.0 * (roll ** 2 + pitch ** 2)`.
+4. Consider adding a reward component that incentivizes the quadruped to move in a straight line, rather than just prioritizing forward velocity. This could be achieved by adding a reward component that penalizes the quadruped for deviating from a straight line, such as `straight_line_penalty = -0.1 * (base_lin_vel[1] ** 2 + base_lin_vel[2] ** 2)`.
+
+
+================================================================================
+  SUMMARY
+================================================================================
+
+
+TOTAL TIME: 216s (3.6 min)
+CANDIDATES GENERATED: 3
+BEST CANDIDATE FILTER REWARD: 17.088422203063963
+FULL TRAINING MEAN REWARD: 17.40127604007721
+FULL TRAINING STD REWARD: 0.4393498402820877
+MEAN EPISODE LENGTH: 15.85
+SUCCESS RATE: 0.0
+REWARD COMPONENTS: {
+  "forward_vel": 0.1003836306379021,
+  "action_penalty": -0.10173291240580827,
+  "orientation_penalty": -0.0011620420244034678,
+  "survival": 1.0
+}
+MODEL SAVED: state/models/test_go2_model.zip
+
+
