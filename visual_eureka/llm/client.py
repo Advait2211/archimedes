@@ -11,8 +11,8 @@ logger = logging.getLogger(__name__)
 
 
 class NIMClient:
-    TEXT_MODEL = "meta/llama-3.3-70b-instruct"
-    VISION_MODEL = "meta/llama-3.2-90b-vision-instruct"
+    TEXT_MODEL = "nvidia/nemotron-3.5-lightning-30b-a3b"
+    VISION_MODEL = "meta/llama-3.2-11b-vision-instruct"
     BASE_URL = "https://integrate.api.nvidia.com/v1"
 
     def __init__(self, api_key: str = None):
@@ -22,7 +22,7 @@ class NIMClient:
                 "NVIDIA API key required. Set NVIDIA_API_KEY environment variable "
                 "or pass api_key to NIMClient."
             )
-        self.client = openai.OpenAI(base_url=self.BASE_URL, api_key=key)
+        self.client = openai.OpenAI(base_url=self.BASE_URL, api_key=key, timeout=300.0)
 
     def complete_text(self, system: str, user: str) -> str:
         try:

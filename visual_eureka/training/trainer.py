@@ -18,6 +18,19 @@ def _get_device() -> str:
     return "cuda" if torch.cuda.is_available() else "cpu"
 
 
+def _get_ppo_batch_size(n_steps: int, n_envs: int) -> int:
+    """Pick batch size based on available hardware. On GPU use larger batches."""
+    rollout_size = n_steps * n_envs
+    if torch.cuda.is_available():
+        batch = 1024
+    else:
+        batch = 256
+    # batch must divide rollout_size evenly
+    while rollout_size % batch != 0 and batch > 64:
+        batch //= 2
+    return batch
+
+
 def _make_env(xml_path: str, obs_config: dict, reward_code: str, seed: int):
     def _init():
         env = EurekaEnv(xml_path, obs_config, reward_code=reward_code)
@@ -92,6 +105,26 @@ class _RewardComponentCallback(BaseCallback):
         if self.component_counts == 0:
             return {}
         return {k: v / self.component_counts for k, v in self.component_sums.items()}
+
+
+class _CheckpointCallback(BaseCallback):
+    """Saves model + vecnorm every checkpoint_freq steps during full training."""
+    def __init__(self, save_path: str, checkpoint_freq: int = 100_000):
+        super().__init__()
+        self._save_path = save_path
+        self._freq = checkpoint_freq
+        self._last_save = 0
+
+    def _on_step(self) -> bool:
+        if self.num_timesteps - self._last_save >= self._freq:
+            self._last_save = self.num_timesteps
+            ckpt_path = self._save_path.replace(".zip", f"_ckpt{self.num_timesteps}")
+            self.model.save(ckpt_path)
+            vn = self.training_env
+            if isinstance(vn, VecNormalize):
+                vn.save(ckpt_path + "_vecnorm.pkl")
+            logger.info(f"Checkpoint saved at {self.num_timesteps} steps: {ckpt_path}.zip")
+        return True
 
 
 class _StatusCallback(BaseCallback):
@@ -225,12 +258,16 @@ def run_filter_phase(
             if status_dict is not None:
                 callbacks.append(_StatusCallback(status_dict, phase_label, filter_steps))
 
+            n_steps = 4096
+            batch_size = _get_ppo_batch_size(n_steps, n_envs)
+            logger.info(f"Filter phase PPO: device={device}, n_steps={n_steps}, batch_size={batch_size}")
+
             model = PPO(
                 "MlpPolicy",
                 vec_env,
                 learning_rate=_linear_schedule(3e-4),
-                n_steps=4096,
-                batch_size=512,
+                n_steps=n_steps,
+                batch_size=batch_size,
                 n_epochs=10,
                 gamma=0.995,
                 gae_lambda=0.95,
@@ -307,16 +344,23 @@ def run_full_training(
         if phase_ph is not None:
             phase_ph.info(f"{phase_label} — 0 / {full_steps:,} steps")
 
+    n_steps = 4096
+    batch_size = _get_ppo_batch_size(n_steps, n_envs)
+    logger.info(f"Full training PPO: device={device}, n_steps={n_steps}, batch_size={batch_size}")
+
     callbacks = [curve_cb, comp_cb]
     if status_dict is not None:
         callbacks.append(_StatusCallback(status_dict, phase_label, full_steps))
+    if save_path:
+        checkpoint_freq = max(100_000, full_steps // 5)
+        callbacks.append(_CheckpointCallback(save_path, checkpoint_freq=checkpoint_freq))
 
     model = PPO(
         "MlpPolicy",
         vec_env,
         learning_rate=_linear_schedule(3e-4),
-        n_steps=4096,
-        batch_size=512,
+        n_steps=n_steps,
+        batch_size=batch_size,
         n_epochs=10,
         gamma=0.995,
         gae_lambda=0.95,
