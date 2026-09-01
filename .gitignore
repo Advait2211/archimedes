@@ -23,6 +23,8 @@ env/
 # Database and model outputs
 state/eureka_runs.db
 state/models/
+!state/models/*.gif
+!state/models/*.png
 
 # Uploaded robot files (generated at runtime)
 uploaded_robot.xml
